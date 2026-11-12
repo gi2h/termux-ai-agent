@@ -1,0 +1,38 @@
+name: Termux AI Agent
+on:
+  workflow_dispatch:
+    inputs:
+      prompt_b64: { description: 'Base64 Prompt', required: true }
+      tunnel_url: { description: 'Tunnel URL', required: true }
+      file_url: { description: 'File URL', required: false }
+      target_url: { description: 'Target URL', required: false }
+jobs:
+  run-ai:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 1. Menyiapkan Server & Ollama
+        run: curl -fsSL https://ollama.com/install.sh | sh
+      - name: 2. Mengunduh Model Qwen
+        run: |
+          ollama serve & 
+          sleep 5
+          ollama pull qwen2.5-coder:7b
+      - name: 3. Memproses Konteks & Menjalankan AI
+        env:
+          PROMPT_B64: ${{ github.event.inputs.prompt_b64 }}
+          TARGET_URL: ${{ github.event.inputs.target_url }}
+          FILE_URL: ${{ github.event.inputs.file_url }}
+        run: |
+          echo "$PROMPT_B64" | base64 -d > prompt.txt
+          if [ -n "$TARGET_URL" ]; then
+            echo -e "\n\n[Website Context: $TARGET_URL]" >> prompt.txt
+          fi
+          if [ -n "$FILE_URL" ]; then
+            echo -e "\n\n[File Context:]" >> prompt.txt
+            curl -sL "$FILE_URL" >> prompt.txt
+          fi
+          cat prompt.txt | ollama run qwen2.5-coder:7b > result.txt
+          python3 -c "import json; result=open('result.txt').read(); print(json.dumps({'result': result}))" > payload.json
+      - name: 4. Mengirim Hasil ke Termux
+        run: |
+          curl -s -X POST "${{ github.event.inputs.tunnel_url }}" -H "Content-Type: application/json" -d @payload.json
